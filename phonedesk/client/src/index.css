@@ -4,7 +4,7 @@
 
 :root {
   color-scheme: dark;
-  font-family: "Segoe UI", "SF Pro Text", "Helvetica Neue", sans-serif;
+  font-family: "Inter", "Segoe UI", "SF Pro Text", "Helvetica Neue", sans-serif;
 }
 
 * {
@@ -21,9 +21,10 @@ body,
 
 body {
   background:
-    radial-gradient(circle at 15% 10%, rgba(18, 196, 139, 0.22), transparent 25%),
-    radial-gradient(circle at 80% 5%, rgba(43, 116, 255, 0.16), transparent 35%),
-    #0f1720;
+    radial-gradient(circle at 8% 10%, rgba(18, 196, 139, 0.22), transparent 22%),
+    radial-gradient(circle at 92% 12%, rgba(59, 130, 246, 0.18), transparent 28%),
+    radial-gradient(circle at 50% 120%, rgba(139, 92, 246, 0.16), transparent 36%),
+    #09111b;
   color: #eef5ff;
 }
 
@@ -43,4 +44,26 @@ input:focus,
 select:focus,
 button:focus-visible {
   box-shadow: 0 0 0 2px rgba(18, 196, 139, 0.5);
+}
+
+@layer components {
+  .glass-panel {
+    @apply border border-white/10 bg-slate-900/70 shadow-panel backdrop-blur-xl;
+  }
+
+  .primary-button {
+    @apply inline-flex items-center rounded-2xl bg-accent px-4 py-3 text-sm font-semibold text-base transition hover:-translate-y-0.5 hover:bg-accentSoft;
+  }
+
+  .secondary-button {
+    @apply inline-flex items-center rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-medium text-white/85 transition hover:border-white/20 hover:bg-white/10;
+  }
+
+  .field-label {
+    @apply flex flex-col gap-2 text-sm text-white/75;
+  }
+
+  .field-input {
+    @apply w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 text-sm text-white placeholder:text-white/30;
+  }
 }

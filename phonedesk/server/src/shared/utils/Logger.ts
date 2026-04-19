@@ -76,7 +76,7 @@ export class Logger {
       await rename(this.auditLogPath, archivePath);
       await writeFile(this.auditLogPath, "", "utf-8");
     } catch {
-      // Нет лога — нечего ротировать.
+      // Nothing to rotate yet.
     }
   }
 }

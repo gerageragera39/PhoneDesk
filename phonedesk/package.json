@@ -1,11 +1,14 @@
 {
   "name": "phonedesk",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
-  "description": "PhoneDesk - локальный сервер и веб-интерфейс для запуска приложений с телефона",
+  "description": "A polished local launcher and remote mouse dashboard for Windows and Linux.",
   "scripts": {
     "dev": "concurrently -n server,client -c green,cyan \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
     "build": "cross-env NODE_ENV=production npm run build --prefix client && npm run copy-client --prefix server && npm run build --prefix server",
+    "build:client": "npm run build --prefix client",
+    "build:server": "npm run build --prefix server",
+    "typecheck": "npm run typecheck --prefix client && npm run typecheck --prefix server",
     "start": "cross-env NODE_ENV=production npm run start --prefix server"
   },
   "devDependencies": {

@@ -1,10 +1,10 @@
+import type { Response } from "express";
 import type { ChildProcess } from "node:child_process";
 import { accessSync, constants as fsConstants, existsSync, statSync } from "node:fs";
-import type { Response } from "express";
 import { AppError } from "../../shared/errors/AppError";
 import type { Logger } from "../../shared/utils/Logger";
-import type { AppEntry, AppStatusSnapshot, LaunchResult } from "../apps/AppTypes";
 import { AppsService } from "../apps/AppsService";
+import type { AppEntry, AppStatusSnapshot, LaunchResult } from "../apps/AppTypes";
 import type { ILauncherStrategy } from "./platform/ILauncherStrategy";
 
 const STATUS_CHECK_INTERVAL_MS = 5000;
@@ -21,7 +21,6 @@ export class LauncherService {
     private readonly processMap: Map<string, ChildProcess>,
   ) {}
 
-  /** Фокусирует окно приложения или запускает процесс, если он не активен. */
   public async focusOrLaunch(app: AppEntry, ip: string): Promise<LaunchResult> {
     try {
       await this.validateExecutablePath(app, ip);
@@ -43,12 +42,12 @@ export class LauncherService {
         throw error;
       }
 
-      this.logger.error("Ошибка запуска приложения", {
+      this.logger.error("Application launch failed", {
         appId: app.id,
         error: error instanceof Error ? error.message : "unknown",
       });
 
-      throw new AppError("Не удалось запустить приложение", 500, "LAUNCH_FAILED", {
+      throw new AppError("Failed to launch application", 500, "LAUNCH_FAILED", {
         appId: app.id,
       });
     }
@@ -57,12 +56,10 @@ export class LauncherService {
   private async validateExecutablePath(app: AppEntry, ip: string): Promise<void> {
     const executablePath = app.executablePath;
     const hasForbiddenCharacters =
-      /[;$`|\n\r]/.test(executablePath) ||
-      executablePath.includes("&&") ||
-      executablePath.includes("||");
+      /[;$`|\n\r]/.test(executablePath) || executablePath.includes("&&") || executablePath.includes("||");
 
     if (hasForbiddenCharacters) {
-      await this.logger.audit("launch_blocked: invalid_path", {
+      await this.logger.audit("launch_blocked.invalid_path", {
         ip,
         appId: app.id,
         appName: app.name,
@@ -74,7 +71,7 @@ export class LauncherService {
     }
 
     if (!existsSync(executablePath)) {
-      await this.logger.audit("launch_blocked: invalid_path", {
+      await this.logger.audit("launch_blocked.invalid_path", {
         ip,
         appId: app.id,
         appName: app.name,
@@ -87,7 +84,7 @@ export class LauncherService {
 
     const stats = statSync(executablePath);
     if (!stats.isFile()) {
-      await this.logger.audit("launch_blocked: invalid_path", {
+      await this.logger.audit("launch_blocked.invalid_path", {
         ip,
         appId: app.id,
         appName: app.name,
@@ -102,7 +99,7 @@ export class LauncherService {
       try {
         accessSync(executablePath, fsConstants.X_OK);
       } catch {
-        await this.logger.audit("launch_blocked: invalid_path", {
+        await this.logger.audit("launch_blocked.invalid_path", {
           ip,
           appId: app.id,
           appName: app.name,
@@ -115,7 +112,6 @@ export class LauncherService {
     }
   }
 
-  /** Возвращает снапшот статусов запущенных приложений. */
   public async getStatusSnapshot(): Promise<AppStatusSnapshot> {
     try {
       const apps = await this.appsService.getApps();
@@ -128,21 +124,19 @@ export class LauncherService {
 
       return Object.fromEntries(statusEntries);
     } catch (error) {
-      this.logger.warn("Не удалось собрать статус приложений", {
+      this.logger.warn("Failed to collect application status snapshot", {
         error: error instanceof Error ? error.message : "unknown",
       });
       return {};
     }
   }
 
-  /** Регистрирует SSE-клиента и запускает цикл обновления статусов. */
   public async addSseClient(response: Response): Promise<void> {
     this.sseClients.add(response);
     await this.pushStatusUpdate();
     this.startStatusLoop();
   }
 
-  /** Удаляет SSE-клиента и останавливает цикл, если клиентов больше нет. */
   public removeSseClient(response: Response): void {
     this.sseClients.delete(response);
 
@@ -151,7 +145,6 @@ export class LauncherService {
     }
   }
 
-  /** Закрывает все активные SSE-подключения при graceful shutdown. */
   public closeAllSseConnections(): void {
     this.stopStatusLoop();
 

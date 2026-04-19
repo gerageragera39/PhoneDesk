@@ -7,7 +7,7 @@ export const apiRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: {
-    message: "Too many requests. Попробуйте через минуту.",
+    message: "Too many requests. Please try again in a minute.",
   },
 });
 
@@ -17,7 +17,7 @@ export const mouseRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: {
-    message: "Too many mouse requests. Попробуйте через секунду.",
+    message: "Too many mouse requests. Please try again in a second.",
   },
 });
 

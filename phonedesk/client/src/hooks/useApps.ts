@@ -42,8 +42,7 @@ export const useApps = () => {
         }
 
         try {
-          const payload = JSON.parse(event.data) as AppStatusSnapshot;
-          setStatuses(payload);
+          setStatuses(JSON.parse(event.data) as AppStatusSnapshot);
         } catch {
           setStatuses({});
         }
@@ -52,7 +51,7 @@ export const useApps = () => {
         throw error;
       },
     }).catch(() => {
-      // Автоповтор handled by fetchEventSource.
+      // Automatic retry is handled by fetchEventSource.
     });
 
     return () => {

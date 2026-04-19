@@ -46,14 +46,14 @@ export class LinuxLauncher implements ILauncherStrategy {
       return {
         success: true,
         action: "launched",
-        message: `Приложение ${app.name} запущено`,
+        message: `${app.name} launched successfully`,
         pid: child.pid,
       };
     } catch (error) {
       return {
         success: false,
         action: "error",
-        message: error instanceof Error ? error.message : "Не удалось запустить приложение",
+        message: error instanceof Error ? error.message : "Failed to launch application",
       };
     }
   }
@@ -68,7 +68,7 @@ export class LinuxLauncher implements ILauncherStrategy {
           return {
             success: true,
             action: "focused",
-            message: `Окно ${app.name} выведено на передний план`,
+            message: `${app.name} was brought to the foreground`,
           };
         }
 
@@ -77,7 +77,7 @@ export class LinuxLauncher implements ILauncherStrategy {
           return {
             success: true,
             action: "focused",
-            message: `Окно ${app.name} выведено на передний план`,
+            message: `${app.name} was brought to the foreground`,
           };
         }
       }
@@ -87,7 +87,7 @@ export class LinuxLauncher implements ILauncherStrategy {
           success: true,
           action: "focus_failed",
           message: this.wmctrlAvailable
-            ? "Приложение уже запущено, но окно не удалось вывести на передний план"
+            ? "The application is already running, but its window could not be focused"
             : "wmctrl not installed, window focus unavailable",
         };
       }
@@ -97,7 +97,7 @@ export class LinuxLauncher implements ILauncherStrategy {
       return {
         success: false,
         action: "error",
-        message: error instanceof Error ? error.message : "Не удалось сфокусировать или запустить приложение",
+        message: error instanceof Error ? error.message : "Failed to focus or launch application",
       };
     }
   }
@@ -121,7 +121,7 @@ export class LinuxLauncher implements ILauncherStrategy {
       return true;
     } catch {
       this.logger.warn(
-        "wmctrl not found. Window focus on Linux unavailable. Install: sudo apt install wmctrl",
+        "wmctrl not found. Window focus on Linux is unavailable. Install it with: sudo apt install wmctrl",
       );
       return false;
     }

@@ -1,170 +1,155 @@
 # PhoneDesk
 
-PhoneDesk превращает второй смартфон в панель быстрого запуска приложений для Windows/Linux через локальный сервер и веб-интерфейс.
+A polished local launcher and remote mouse dashboard for Windows and Linux.
 
-## Возможности
+## Highlights
 
-- Вход по PIN (4-8 цифр), JWT-сессии на 8 часов
-- Защита от brute force (5 попыток за 10 минут, блок на 15 минут)
-- Admin API только с `localhost` (`127.0.0.1`, `::1`)
-- Каталог приложений в JSON-файле (без БД)
-- Запуск/фокус приложения через стратегии `WindowsLauncher` / `LinuxLauncher`
-- SSE-обновление статусов без polling (интервал не чаще 5 секунд)
-- Audit-лог авторизаций и запусков в `data/audit.log`
-- React UI:
-  - `/pin` — ввод PIN
-  - `/dashboard` — иконки запуска
-  - `/admin` — CRUD приложений, сортировка drag-and-drop, сканирование, смена PIN
-- PWA (manifest + service worker)
+- Mobile-friendly launcher dashboard with live app status
+- PIN-based authentication with JWT sessions and brute-force protection
+- Localhost-only admin panel for sensitive actions
+- Quick add flow via a **native system file picker**
+- Smarter Windows scan based on desktop + Start Menu shortcuts
+- Faster Windows mouse control using a persistent PowerShell worker
+- JSON storage with zero database setup
+- PWA-ready frontend served directly from the Node server
+- Built-in health endpoint: `GET /api/health`
 
-## Стек
+## Tech stack
 
-- Backend: Node.js 20+, TypeScript, Express
-- Frontend: React 18, TypeScript, Vite, TailwindCSS
-- State: React Query + Zustand
-- Безопасность: helmet, cors, express-rate-limit, zod, bcryptjs, jsonwebtoken
+- **Frontend:** React, TypeScript, Vite, Tailwind CSS, React Query, Framer Motion
+- **Backend:** Express, TypeScript, Zod
+- **Security:** Helmet, CORS, express-rate-limit, bcryptjs, jsonwebtoken
+- **Persistence:** Local JSON files in `data/`
 
-## Структура
+## Monorepo layout
 
 ```text
 phonedesk/
-├── server/
-├── client/
-├── data/
-├── package.json
-└── README.md
+├─ client/          # React frontend
+├─ server/          # Express API + platform integrations
+├─ docs/            # Project documentation
+├─ data/            # Runtime state (ignored by Git)
+└─ package.json     # Root scripts
 ```
 
-## Требования
+## Requirements
 
 - Node.js 20+
-- npm 10+
-- Windows: PowerShell 5+
-- Linux: рекомендуется `wmctrl` (опционально, для фокуса окна)
+- Windows or Linux
+- Linux mouse support: `xdotool`
+- Linux window focusing: `wmctrl` recommended
 
-## Установка
-
-### Вариант 1 (по папкам)
+## Installation
 
 ```bash
-cd phonedesk/server && npm install
-cd ../client && npm install
+npm ci
+npm ci --prefix client
+npm ci --prefix server
 ```
 
-### Вариант 2 (из корня)
+## Environment
 
-```bash
-cd phonedesk
-npm install
-cd server && npm install
-cd ../client && npm install
-```
-
-## Переменные окружения
-
-Файл: `server/.env`
+Copy `server/.env.example` if needed.
 
 ```env
 PORT=3000
 NODE_ENV=development
+# INITIAL_PIN=123456
 ```
 
-## Запуск
+`INITIAL_PIN` is optional and only matters on first launch.
 
-### Development
+## Development
 
 ```bash
-cd phonedesk
 npm run dev
 ```
 
-- Backend: `http://localhost:3000`
-- Frontend (Vite): `http://localhost:5173`
-
-### Production
+## Production build
 
 ```bash
-cd phonedesk
 npm run build
 npm start
 ```
 
-- `npm run build`:
-  1. собирает клиент
-  2. копирует build в `server/public`
-  3. собирает сервер
-- `npm start` запускает только сервер, который раздаёт API и статику React
+The production build:
 
-## Первый запуск
+1. builds the client
+2. copies the generated frontend into `server/public`
+3. builds the server
 
-На первом запуске сервер:
+## First launch
 
-1. Создаёт `data/config.json` (если отсутствует)
-2. Генерирует 6-значный PIN
-3. Печатает в консоль:
-   - `PhoneDesk запущен! PIN для входа: XXXXXX. Смените PIN в Admin панели.`
-   - `Откройте на iPhone: http://<local-ip>:3000`
+On the first run, PhoneDesk:
 
-После входа откройте `/admin` на ПК и смените PIN.
+1. creates the runtime `data/` files if they do not exist
+2. generates a temporary PIN unless `INITIAL_PIN` is set
+3. prints the phone access URL in the terminal
 
-## API
+Then:
+
+- open `http://127.0.0.1:3000/admin` on the host machine
+- change the PIN
+- add or scan the applications you want to expose
+- open the launcher URL on your phone
+
+## Key routes
 
 ### Auth
 
-- `POST /api/auth/login` → `{ token, expiresInSeconds, mustChangePin }`
-- `GET /api/auth/verify` → требует Bearer token
-- `POST /api/auth/change-pin` → требует Bearer token + localhost
+- `POST /api/auth/login`
+- `GET /api/auth/verify`
+- `POST /api/auth/change-pin`
 
-### User Apps
+### Apps
 
-- `GET /api/apps` → список приложений
-- `POST /api/apps/:id/launch` → запуск/фокус
-- `GET /api/apps/status` → SSE статусов
+- `GET /api/apps`
+- `POST /api/apps/:id/launch`
+- `GET /api/apps/status`
 
-### Admin Apps (localhost only)
+### Admin
 
 - `GET /api/admin/apps`
 - `POST /api/admin/apps`
+- `POST /api/admin/apps/pick-executable`
+- `POST /api/admin/apps/scan`
 - `PUT /api/admin/apps/:id`
 - `DELETE /api/admin/apps/:id`
-- `POST /api/admin/apps/scan`
 
-## Безопасность
+### Mouse
 
-- `helmet` для security headers
-- CORS только для localhost и private LAN диапазонов
-- Global API rate limit: 100 req/min/IP
-- Auth brute-force limiter в памяти
-- Валидация `zod` на POST/PUT
-- `Cache-Control: no-store` для `/api/*`
+- `POST /api/mouse/move`
+- `POST /api/mouse/click`
+- `POST /api/mouse/scroll`
 
-## Где лежат данные
+### Operations
 
-- `data/apps.windows.json`
-- `data/apps.linux.json`
-- `data/config.json`
-- `data/audit.log`
+- `GET /api/health`
 
-`data/` добавлена в `.gitignore`.
+## Security notes
 
-## Примечания по платформам
+- Admin routes are restricted to `localhost`
+- API responses under `/api/*` are `no-store`
+- PIN login is rate-limited and brute-force protected
+- Input payloads are validated with Zod
+- Audit events are written to `data/audit.log`
 
-### Windows
+## Data folder
 
-- Проверка процесса: `tasklist`
-- Фокус окна: PowerShell + `SetForegroundWindow`
+Do **not** push the live `data/` folder to GitHub.
 
-### Linux
+It contains runtime state such as:
 
-- Проверка процесса: `pgrep -x`
-- Фокус окна: `wmctrl -a <window>`
-- Если `wmctrl` отсутствует, используется fallback на запуск
+- the generated PIN hash
+- the JWT secret
+- your local application catalog
+- audit logs
 
-## Проверка качества
+Keep only `data/.gitkeep` in the repository.
 
-```bash
-cd phonedesk/server && npm run typecheck
-cd ../client && npm run typecheck
-cd .. && npm run build
-```
+## Documentation
 
+- [Installation](./docs/INSTALLATION.md)
+- [Architecture](./docs/ARCHITECTURE.md)
+- [Operations](./docs/OPERATIONS.md)
+- [Security](./docs/SECURITY.md)

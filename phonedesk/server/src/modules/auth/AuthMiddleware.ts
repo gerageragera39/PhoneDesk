@@ -10,13 +10,12 @@ export class AuthMiddleware {
       const authorization = request.headers.authorization;
 
       if (!authorization || !authorization.startsWith("Bearer ")) {
-        throw new AppError("Требуется авторизация", 401, "AUTH_REQUIRED");
+        throw new AppError("Authorization is required", 401, "AUTH_REQUIRED");
       }
 
       const token = authorization.slice("Bearer ".length).trim();
-
       if (!token) {
-        throw new AppError("Требуется авторизация", 401, "AUTH_REQUIRED");
+        throw new AppError("Authorization is required", 401, "AUTH_REQUIRED");
       }
 
       request.auth = await this.authService.verifyToken(token);

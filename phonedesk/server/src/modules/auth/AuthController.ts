@@ -17,7 +17,6 @@ const getClientIp = (request: Request): string => {
 
   if (typeof forwardedForHeader === "string" && forwardedForHeader.length > 0) {
     const first = forwardedForHeader.split(",")[0]?.trim();
-
     if (first) {
       return first;
     }
@@ -47,8 +46,7 @@ export class AuthController {
   private async login(request: Request, response: Response, next: NextFunction): Promise<void> {
     try {
       const payload = loginSchema.parse(request.body);
-      const ip = getClientIp(request);
-      const result = await this.authService.login(payload.pin, ip);
+      const result = await this.authService.login(payload.pin, getClientIp(request));
 
       response.status(200).json({
         token: result.token,
@@ -73,7 +71,7 @@ export class AuthController {
     try {
       const payload = changePinSchema.parse(request.body);
       await this.authService.changePin(payload.currentPin, payload.newPin, payload.confirmPin);
-      response.status(200).json({ message: "PIN успешно изменён" });
+      response.status(200).json({ message: "PIN updated successfully" });
     } catch (error) {
       next(error);
     }

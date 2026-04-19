@@ -12,18 +12,18 @@ const run = async () => {
   try {
     await access(clientDist);
   } catch {
-    throw new Error("Сборка client не найдена. Сначала выполните `npm run build --prefix client`.");
+    throw new Error("Client build not found. Run `npm run build --prefix client` first.");
   }
 
   await rm(publicDir, { recursive: true, force: true });
   await mkdir(publicDir, { recursive: true });
   await cp(clientDist, publicDir, { recursive: true });
 
-  console.log("Client build скопирован в server/public");
+  console.log("Client build copied to server/public");
 };
 
 run().catch((error) => {
-  const message = error instanceof Error ? error.message : "Неизвестная ошибка";
+  const message = error instanceof Error ? error.message : "Unknown error";
   console.error(message);
   process.exit(1);
 });

@@ -39,7 +39,6 @@ export class AuthService {
     private readonly logger: Logger,
   ) {}
 
-  /** Инициализирует auth-конфиг и создаёт PIN/JWT secret при первом запуске. */
   public async bootstrap(): Promise<{ generatedPin?: string }> {
     try {
       await this.configStorage.ensureFile();
@@ -53,8 +52,9 @@ export class AuthService {
             : this.generatePin(6);
 
         if (configuredInitialPin && !/^\d{4,8}$/.test(configuredInitialPin)) {
-          this.logger.warn("INITIAL_PIN is invalid. Falling back to random generated PIN.");
+          this.logger.warn("INITIAL_PIN is invalid. Falling back to a generated PIN.");
         }
+
         const pinHash = await bcrypt.hash(generatedPin, 10);
         const jwtSecret = randomBytes(64).toString("hex");
         const createdAt = new Date().toISOString();
@@ -68,7 +68,6 @@ export class AuthService {
         };
 
         await this.configStorage.write(this.config);
-
         return { generatedPin };
       }
 
@@ -82,14 +81,13 @@ export class AuthService {
 
       return {};
     } catch (error) {
-      this.logger.error("Не удалось инициализировать auth-конфиг", {
+      this.logger.error("Failed to bootstrap authentication", {
         error: error instanceof Error ? error.message : "unknown",
       });
-      throw new AppError("Не удалось инициализировать модуль авторизации", 500, "AUTH_INIT_FAILED");
+      throw new AppError("Failed to initialize authentication", 500, "AUTH_INIT_FAILED");
     }
   }
 
-  /** Выполняет вход по PIN c защитой от брутфорса и возвращает JWT. */
   public async login(pin: string, ip: string): Promise<LoginResult> {
     try {
       const cfg = await this.getConfigOrThrow();
@@ -107,21 +105,19 @@ export class AuthService {
         });
 
         if (retryAfterSeconds > 0) {
-          throw new AppError("Слишком много попыток. Вход временно заблокирован.", 429, "AUTH_BLOCKED", {
+          throw new AppError("Too many failed attempts. Login is temporarily blocked.", 429, "AUTH_BLOCKED", {
             retryAfterSeconds,
           });
         }
 
-        throw new AppError("Неверный PIN", 401, "AUTH_INVALID_PIN");
+        throw new AppError("Invalid PIN", 401, "AUTH_INVALID_PIN");
       }
 
       this.attemptsByIp.delete(ip);
 
       const token = jwt.sign({ sub: "phonedesk", role: "user" }, cfg.jwtSecret, { expiresIn: TOKEN_TTL });
 
-      await this.logger.audit("auth.login.success", {
-        ip,
-      });
+      await this.logger.audit("auth.login.success", { ip });
 
       return {
         token,
@@ -133,18 +129,17 @@ export class AuthService {
         throw error;
       }
 
-      throw new AppError("Ошибка авторизации", 500, "AUTH_LOGIN_FAILED");
+      throw new AppError("Authentication failed", 500, "AUTH_LOGIN_FAILED");
     }
   }
 
-  /** Проверяет JWT и возвращает payload. */
   public async verifyToken(token: string): Promise<JwtPayload & { sub: string; role: "user" | "admin" }> {
     try {
       const cfg = await this.getConfigOrThrow();
       const decoded = jwt.verify(token, cfg.jwtSecret);
 
       if (typeof decoded === "string") {
-        throw new AppError("Невалидный токен", 401, "AUTH_TOKEN_INVALID");
+        throw new AppError("Invalid token", 401, "AUTH_TOKEN_INVALID");
       }
 
       const role = decoded.role === "admin" ? "admin" : "user";
@@ -159,26 +154,25 @@ export class AuthService {
         throw error;
       }
 
-      throw new AppError("Токен недействителен", 401, "AUTH_TOKEN_INVALID");
+      throw new AppError("Token is invalid or expired", 401, "AUTH_TOKEN_INVALID");
     }
   }
 
-  /** Меняет PIN-код и снимает флаг обязательной смены на первом запуске. */
   public async changePin(currentPin: string, newPin: string, confirmPin: string): Promise<void> {
     try {
       if (newPin !== confirmPin) {
-        throw new AppError("PIN и подтверждение не совпадают", 400, "AUTH_PIN_CONFIRM_MISMATCH");
+        throw new AppError("PIN confirmation does not match", 400, "AUTH_PIN_CONFIRM_MISMATCH");
       }
 
       if (!/^\d{4,8}$/.test(newPin)) {
-        throw new AppError("PIN должен содержать от 4 до 8 цифр", 400, "AUTH_PIN_INVALID_FORMAT");
+        throw new AppError("PIN must contain 4 to 8 digits", 400, "AUTH_PIN_INVALID_FORMAT");
       }
 
       const cfg = await this.getConfigOrThrow();
       const isCurrentValid = await bcrypt.compare(currentPin, cfg.pinHash);
 
       if (!isCurrentValid) {
-        throw new AppError("Текущий PIN неверный", 401, "AUTH_CURRENT_PIN_INVALID");
+        throw new AppError("Current PIN is invalid", 401, "AUTH_CURRENT_PIN_INVALID");
       }
 
       const nextPinHash = await bcrypt.hash(newPin, 10);
@@ -196,11 +190,10 @@ export class AuthService {
         throw error;
       }
 
-      throw new AppError("Не удалось изменить PIN", 500, "AUTH_CHANGE_PIN_FAILED");
+      throw new AppError("Failed to change PIN", 500, "AUTH_CHANGE_PIN_FAILED");
     }
   }
 
-  /** Возвращает, требуется ли обязательная смена PIN. */
   public async isForcePinChangeEnabled(): Promise<boolean> {
     const cfg = await this.getConfigOrThrow();
     return cfg.forcePinChange ?? false;
@@ -214,11 +207,10 @@ export class AuthService {
     const loaded = await this.configStorage.read();
 
     if (!loaded.pinHash || !loaded.jwtSecret) {
-      throw new AppError("Конфигурация авторизации не инициализирована", 500, "AUTH_CONFIG_MISSING");
+      throw new AppError("Authentication configuration is missing", 500, "AUTH_CONFIG_MISSING");
     }
 
     this.config = loaded;
-
     return loaded as Required<Pick<AuthConfig, "pinHash" | "jwtSecret">> & AuthConfig;
   }
 
@@ -245,7 +237,7 @@ export class AuthService {
     }
 
     const retryAfterSeconds = Math.ceil((current.blockedUntil - Date.now()) / 1000);
-    throw new AppError("Слишком много попыток. Вход временно заблокирован.", 429, "AUTH_BLOCKED", {
+    throw new AppError("Too many failed attempts. Login is temporarily blocked.", 429, "AUTH_BLOCKED", {
       retryAfterSeconds,
     });
   }
@@ -257,9 +249,7 @@ export class AuthService {
     const recentFailures = existing.failures.filter((timestamp) => now - timestamp <= FAILURE_WINDOW_MS);
     recentFailures.push(now);
 
-    const next: AttemptRecord = {
-      failures: recentFailures,
-    };
+    const next: AttemptRecord = { failures: recentFailures };
 
     if (recentFailures.length >= MAX_FAILURES) {
       next.blockedUntil = now + BLOCK_DURATION_MS;

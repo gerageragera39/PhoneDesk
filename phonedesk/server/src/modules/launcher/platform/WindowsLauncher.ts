@@ -14,13 +14,7 @@ export class WindowsLauncher implements ILauncherStrategy {
 
   public async launch(app: AppEntry): Promise<LaunchResult> {
     try {
-      const cwd = app.workingDirectory || path.dirname(app.executablePath);
-      const child = spawn(app.executablePath, app.args ?? [], {
-        cwd,
-        detached: true,
-        stdio: "ignore",
-        windowsHide: false,
-      });
+      const child = this.spawnApp(app);
 
       child.unref();
       this.processMap.set(app.id, child);
@@ -31,14 +25,14 @@ export class WindowsLauncher implements ILauncherStrategy {
       return {
         success: true,
         action: "launched",
-        message: `Приложение ${app.name} запущено`,
+        message: `${app.name} launched successfully`,
         pid: child.pid,
       };
     } catch (error) {
       return {
         success: false,
         action: "error",
-        message: error instanceof Error ? error.message : "Не удалось запустить приложение",
+        message: error instanceof Error ? error.message : "Failed to launch application",
       };
     }
   }
@@ -57,7 +51,7 @@ export class WindowsLauncher implements ILauncherStrategy {
         return {
           success: true,
           action: "focused",
-          message: `Окно ${app.name} выведено на передний план`,
+          message: `${app.name} was brought to the foreground`,
         };
       }
 
@@ -66,13 +60,18 @@ export class WindowsLauncher implements ILauncherStrategy {
       return {
         success: false,
         action: "error",
-        message: error instanceof Error ? error.message : "Не удалось сфокусировать или запустить приложение",
+        message: error instanceof Error ? error.message : "Failed to focus or launch application",
       };
     }
   }
 
   public async isRunning(app: AppEntry): Promise<boolean> {
     try {
+      const extension = path.win32.extname(app.executablePath).toLowerCase();
+      if (extension && extension !== ".exe") {
+        return false;
+      }
+
       const imageName = path.win32.basename(app.executablePath);
       const result = await this.execFileAsync("tasklist", ["/FI", `IMAGENAME eq ${imageName}`]);
       const output = `${result.stdout}\n${result.stderr}`.toLowerCase();
@@ -82,7 +81,33 @@ export class WindowsLauncher implements ILauncherStrategy {
     }
   }
 
+  private spawnApp(app: AppEntry): ChildProcess {
+    const cwd = app.workingDirectory || path.dirname(app.executablePath);
+    const extension = path.win32.extname(app.executablePath).toLowerCase();
+
+    if (extension === ".bat" || extension === ".cmd" || extension === ".com") {
+      return spawn("cmd.exe", ["/c", "start", "", "/d", cwd, app.executablePath, ...(app.args ?? [])], {
+        cwd,
+        detached: true,
+        stdio: "ignore",
+        windowsHide: false,
+      });
+    }
+
+    return spawn(app.executablePath, app.args ?? [], {
+      cwd,
+      detached: true,
+      stdio: "ignore",
+      windowsHide: false,
+    });
+  }
+
   private async focusWindow(executablePath: string): Promise<boolean> {
+    const extension = path.win32.extname(executablePath).toLowerCase();
+    if (extension && extension !== ".exe") {
+      return false;
+    }
+
     const executableName = path.win32.basename(executablePath, path.win32.extname(executablePath));
     const script = `
 $signature = @"

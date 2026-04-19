@@ -1,10 +1,11 @@
 {
   "name": "PhoneDesk",
   "short_name": "PhoneDesk",
+  "description": "A polished local launcher and remote mouse dashboard for Windows and Linux.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f1720",
-  "theme_color": "#0f1720",
+  "background_color": "#09111b",
+  "theme_color": "#09111b",
   "orientation": "portrait",
   "icons": [
     {

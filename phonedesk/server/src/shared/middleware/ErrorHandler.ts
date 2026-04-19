@@ -18,7 +18,7 @@ export const errorHandler = (logger: Logger) => {
       });
 
       response.status(400).json({
-        message: "Неверные входные данные",
+        message: "Invalid request payload",
         code: "VALIDATION_ERROR",
         details: error.flatten(),
       });

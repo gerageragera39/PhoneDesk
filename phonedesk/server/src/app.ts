@@ -6,27 +6,27 @@ import helmet from "helmet";
 import type { ChildProcess } from "node:child_process";
 import { chmodSync } from "node:fs";
 import path from "node:path";
-import { AppConfig } from "./config/AppConfig";
-import { AuthController } from "./modules/auth/AuthController";
-import { AuthMiddleware } from "./modules/auth/AuthMiddleware";
-import { AuthService, type AuthConfig } from "./modules/auth/AuthService";
 import { AppsController } from "./modules/apps/AppsController";
 import type { AppEntry } from "./modules/apps/AppTypes";
 import { AppsRepository } from "./modules/apps/AppsRepository";
 import { AppsService } from "./modules/apps/AppsService";
+import { AuthController } from "./modules/auth/AuthController";
+import { AuthMiddleware } from "./modules/auth/AuthMiddleware";
+import { AuthService, type AuthConfig } from "./modules/auth/AuthService";
 import { LauncherController } from "./modules/launcher/LauncherController";
 import { LauncherService } from "./modules/launcher/LauncherService";
 import { LinuxLauncher } from "./modules/launcher/platform/LinuxLauncher";
 import { WindowsLauncher } from "./modules/launcher/platform/WindowsLauncher";
 import { MouseController } from "./modules/mouse/MouseController";
-import { MouseService } from "./modules/mouse/MouseService";
 import { LinuxMouseStrategy } from "./modules/mouse/LinuxMouseStrategy";
+import { MouseService } from "./modules/mouse/MouseService";
 import { WindowsMouseStrategy } from "./modules/mouse/WindowsMouseStrategy";
+import { AppConfig } from "./config/AppConfig";
 import { errorHandler, notFoundHandler } from "./shared/middleware/ErrorHandler";
 import { ipWhitelist } from "./shared/middleware/IpWhitelist";
 import { apiRateLimiter, noStoreApiCache } from "./shared/middleware/RateLimiter";
-import { PlatformDetector } from "./shared/utils/PlatformDetector";
 import { Logger } from "./shared/utils/Logger";
+import { PlatformDetector } from "./shared/utils/PlatformDetector";
 import { JsonStorage } from "./storage/JsonStorage";
 
 dotenv.config();
@@ -48,11 +48,7 @@ const isAllowedLocalOrigin = (origin: string): boolean => {
       return true;
     }
 
-    if (/^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(host)) {
-      return true;
-    }
-
-    return false;
+    return /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(host);
   } catch {
     return false;
   }
@@ -63,17 +59,17 @@ const bootstrap = async (): Promise<void> => {
   await appConfig.ensureRuntimeFiles();
 
   const logger = new Logger(appConfig.auditLogPath, appConfig.nodeEnv);
-
   const authStorage = new JsonStorage<AuthConfig>(appConfig.configFilePath, {});
   const appsStorage = new JsonStorage<AppEntry[]>(appConfig.platformAppsFilePath, []);
 
   const authService = new AuthService(authStorage, logger);
   const bootstrapAuthResult = await authService.bootstrap();
+
   if (process.platform !== "win32") {
     try {
       chmodSync(appConfig.configFilePath, 0o600);
     } catch (error) {
-      logger.warn("Не удалось установить права 0600 для config.json", {
+      logger.warn("Failed to apply 0600 permissions to config.json", {
         error: error instanceof Error ? error.message : "unknown",
       });
     }
@@ -131,8 +127,18 @@ const bootstrap = async (): Promise<void> => {
   app.use(express.json({ limit: "256kb" }));
 
   app.use("/api", noStoreApiCache);
+  app.get("/api/health", (_request, response) => {
+    response.status(200).json({
+      status: "ok",
+      platform: appConfig.platform,
+      environment: appConfig.nodeEnv,
+      uptimeSeconds: Math.round(process.uptime()),
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   app.use("/api", (request: Request, response: Response, next: NextFunction) => {
-    if (request.path.startsWith("/mouse")) {
+    if (request.path.startsWith("/mouse") || request.path === "/health") {
       next();
       return;
     }
@@ -162,11 +168,9 @@ const bootstrap = async (): Promise<void> => {
     const indexFilePath = path.resolve(appConfig.publicDir, "index.html");
 
     response.sendFile(indexFilePath, (error) => {
-      if (!error) {
-        return;
+      if (error) {
+        next();
       }
-
-      next();
     });
   });
 
@@ -180,30 +184,30 @@ const bootstrap = async (): Promise<void> => {
 
     if (bootstrapAuthResult.generatedPin) {
       console.log(
-        `PhoneDesk запущен! PIN для входа: ${bootstrapAuthResult.generatedPin}. Смените PIN в Admin панели.`,
+        `PhoneDesk is ready. Your temporary login PIN is ${bootstrapAuthResult.generatedPin}. Change it from the Admin page.`,
       );
     }
 
-    logger.info(`Откройте на iPhone: http://${localIp}:${appConfig.port}`);
+    console.log(`Open PhoneDesk on your phone: http://${localIp}:${appConfig.port}`);
   });
 
   const shutdown = (signal: NodeJS.Signals): void => {
-    logger.warn(`Получен ${signal}. Выполняется graceful shutdown...`);
+    logger.warn(`Received ${signal}. Starting graceful shutdown...`);
 
     launcherService.closeAllSseConnections();
 
     server.close((error?: Error) => {
       if (error) {
-        logger.error("Ошибка во время остановки HTTP-сервера", { error: error.message });
+        logger.error("HTTP server shutdown failed", { error: error.message });
         process.exit(1);
       }
 
-      logger.warn("PhoneDesk остановлен корректно");
+      logger.warn("PhoneDesk stopped successfully");
       process.exit(0);
     });
 
     setTimeout(() => {
-      logger.error("Принудительное завершение: таймаут graceful shutdown");
+      logger.error("Forced shutdown: graceful shutdown timeout reached");
       process.exit(1);
     }, 10_000).unref();
   };

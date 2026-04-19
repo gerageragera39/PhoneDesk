@@ -23,6 +23,7 @@ export class AppsController {
 
     router.get("/", (request, response, next) => this.getApps(request, response, next));
     router.post("/", (request, response, next) => this.createApp(request, response, next));
+    router.post("/pick-executable", (request, response, next) => this.pickExecutable(request, response, next));
     router.put("/:id", (request, response, next) => this.updateApp(request, response, next));
     router.delete("/:id", (request, response, next) => this.deleteApp(request, response, next));
     router.post("/scan", (request, response, next) => this.scanApps(request, response, next));
@@ -44,6 +45,15 @@ export class AppsController {
       const payload = createAppInputSchema.parse(request.body) as CreateAppInput;
       const app = await this.appsService.createApp(payload);
       response.status(201).json(app);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  private async pickExecutable(_request: Request, response: Response, next: NextFunction): Promise<void> {
+    try {
+      const draft = await this.appsService.createDraftFromSystemPicker();
+      response.status(200).json(draft);
     } catch (error) {
       next(error);
     }

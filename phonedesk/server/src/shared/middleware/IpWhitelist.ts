@@ -7,7 +7,6 @@ const extractIp = (request: Request): string => {
 
   if (typeof forwardedForHeader === "string" && forwardedForHeader.length > 0) {
     const candidate = forwardedForHeader.split(",")[0]?.trim();
-
     if (candidate) {
       return candidate;
     }
@@ -15,7 +14,6 @@ const extractIp = (request: Request): string => {
 
   if (Array.isArray(forwardedForHeader) && forwardedForHeader.length > 0) {
     const candidate = forwardedForHeader[0]?.split(",")[0]?.trim();
-
     if (candidate) {
       return candidate;
     }
@@ -34,6 +32,6 @@ export const ipWhitelist = (request: Request, response: Response, next: NextFunc
   }
 
   response.status(403).json({
-    message: "Forbidden: admin endpoints доступны только с localhost",
+    message: "Forbidden: admin endpoints are available only from localhost",
   });
 };

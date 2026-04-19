@@ -1,16 +1,17 @@
+import { execFile } from "node:child_process";
 import { access, constants, readdir, readFile, stat } from "node:fs/promises";
 import type { Dirent, Stats } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import { AppError } from "../../shared/errors/AppError";
-import type { SupportedPlatform } from "../../shared/utils/PlatformDetector";
 import type { Logger } from "../../shared/utils/Logger";
-import type { AppEntry, CreateAppInput, UpdateAppInput } from "./AppTypes";
+import type { SupportedPlatform } from "../../shared/utils/PlatformDetector";
 import { AppsRepository } from "./AppsRepository";
+import type { AppEntry, CreateAppInput, UpdateAppInput } from "./AppTypes";
 
-const MAX_SCAN_RESULTS = 120;
-const DESKTOP_EXEC_PLACEHOLDER_REGEX = /%[UuFf]/g;
+const MAX_SCAN_RESULTS = 72;
+const DESKTOP_EXEC_PLACEHOLDER_REGEX = /%[UuFfKk]/g;
 const MAX_ICON_SOURCE_BYTES = 64 * 1024;
 const MAX_ICON_DATA_URL_LENGTH = 120_000;
 const ICON_EXTENSIONS = [".png", ".svg", ".jpg", ".jpeg", ".webp", ".xpm"] as const;
@@ -24,6 +25,97 @@ const ICON_MIME_TYPES: Record<(typeof ICON_EXTENSIONS)[number], string> = {
 };
 const ICON_INDEX_MAX_DEPTH = 6;
 const ICON_INDEX_MAX_DIRECTORIES = 20_000;
+const WINDOWS_PICKER_EXIT_CANCELLED = 2;
+const WINDOWS_APP_EXTENSIONS = new Set([".exe", ".bat", ".cmd", ".com"]);
+const WINDOWS_EXCLUDED_KEYWORDS = [
+  "uninstall",
+  "unins",
+  "updater",
+  "update",
+  "crash",
+  "report",
+  "helper",
+  "service",
+  "telemetry",
+  "setup",
+  "installer",
+  "install",
+  "repair",
+  "redistributable",
+  "runtime",
+  "diagnostic",
+  "feedback",
+  "support",
+  "migration",
+  "assistant",
+  "notification",
+  "maintenance",
+  "safe mode",
+  "recovery",
+  "driver",
+  "stub",
+];
+const WINDOWS_PRIORITY_KEYWORDS = [
+  "visual studio",
+  "vs code",
+  "code",
+  "chrome",
+  "edge",
+  "firefox",
+  "brave",
+  "opera",
+  "netflix",
+  "spotify",
+  "discord",
+  "slack",
+  "telegram",
+  "steam",
+  "obs",
+  "vlc",
+  "docker",
+  "postman",
+  "figma",
+  "android studio",
+  "pycharm",
+  "intellij",
+  "webstorm",
+  "datagrip",
+  "rider",
+  "notepad++",
+  "photoshop",
+  "premiere",
+  "unity",
+  "unreal",
+  "blender",
+];
+const DISPLAY_NAME_BY_EXECUTABLE: Record<string, string> = {
+  chrome: "Google Chrome",
+  msedge: "Microsoft Edge",
+  firefox: "Mozilla Firefox",
+  brave: "Brave",
+  opera: "Opera",
+  code: "VS Code",
+  devenv: "Visual Studio",
+  spotify: "Spotify",
+  discord: "Discord",
+  telegram: "Telegram",
+  slack: "Slack",
+  teams: "Microsoft Teams",
+  steam: "Steam",
+  obs64: "OBS Studio",
+  vlc: "VLC media player",
+  docker: "Docker Desktop",
+  postman: "Postman",
+  figma: "Figma",
+  pycharm64: "PyCharm",
+  idea64: "IntelliJ IDEA",
+  webstorm64: "WebStorm",
+  datagrip64: "DataGrip",
+  rider64: "Rider",
+  "notepad++": "Notepad++",
+  blender: "Blender",
+  netflix: "Netflix",
+};
 
 interface LinuxDesktopEntry {
   name: string;
@@ -34,6 +126,19 @@ interface LinuxDesktopEntry {
 interface IconIndexCandidate {
   path: string;
   score: number;
+}
+
+interface ExecResult {
+  stdout: string;
+  stderr: string;
+}
+
+interface WindowsDiscoveryCandidate {
+  name?: string;
+  targetPath?: string;
+  arguments?: string;
+  workingDirectory?: string;
+  sourcePath?: string;
 }
 
 export class AppsService {
@@ -48,37 +153,33 @@ export class AppsService {
     private readonly platform: SupportedPlatform,
   ) {}
 
-  /** Возвращает приложения с разрешёнными иконками для UI-клиента. */
   public async getAppsForClient(): Promise<AppEntry[]> {
     const apps = await this.getApps();
     return this.withResolvedIcons(apps);
   }
 
-  /** Возвращает список приложений для текущей платформы, отсортированный по sortOrder. */
   public async getApps(): Promise<AppEntry[]> {
     try {
       const apps = await this.repository.findAll();
-      const normalizedApps =
-        this.platform === "linux" ? await this.persistLinuxIconsIfNeeded(apps) : apps;
+      const normalizedApps = this.platform === "linux" ? await this.persistLinuxIconsIfNeeded(apps) : apps;
 
       return normalizedApps
         .filter((entry) => entry.platform === "both" || entry.platform === this.platform)
         .sort((left, right) => left.sortOrder - right.sortOrder);
     } catch (error) {
-      this.logger.error("Не удалось получить список приложений", {
+      this.logger.error("Failed to load applications", {
         error: error instanceof Error ? error.message : "unknown",
       });
-      throw new AppError("Не удалось получить список приложений", 500, "APPS_READ_FAILED");
+      throw new AppError("Failed to load applications", 500, "APPS_READ_FAILED");
     }
   }
 
-  /** Ищет приложение по id и выбрасывает 404, если оно не найдено. */
   public async getAppByIdOrThrow(id: string): Promise<AppEntry> {
     try {
       const app = await this.repository.findById(id);
 
       if (!app) {
-        throw new AppError("Приложение не найдено", 404, "APP_NOT_FOUND", { id });
+        throw new AppError("Application not found", 404, "APP_NOT_FOUND", { id });
       }
 
       return app;
@@ -87,11 +188,10 @@ export class AppsService {
         throw error;
       }
 
-      throw new AppError("Ошибка при поиске приложения", 500, "APP_LOOKUP_FAILED", { id });
+      throw new AppError("Failed to find application", 500, "APP_LOOKUP_FAILED", { id });
     }
   }
 
-  /** Создаёт новую запись приложения и сохраняет её в JSON-хранилище. */
   public async createApp(input: CreateAppInput): Promise<AppEntry> {
     try {
       const apps = await this.repository.findAll();
@@ -117,18 +217,17 @@ export class AppsService {
         throw error;
       }
 
-      throw new AppError("Не удалось добавить приложение", 500, "APP_CREATE_FAILED");
+      throw new AppError("Failed to add application", 500, "APP_CREATE_FAILED");
     }
   }
 
-  /** Обновляет запись приложения по id. */
   public async updateApp(id: string, patch: UpdateAppInput): Promise<AppEntry> {
     try {
       const apps = await this.repository.findAll();
       const index = apps.findIndex((entry) => entry.id === id);
 
       if (index === -1) {
-        throw new AppError("Приложение не найдено", 404, "APP_NOT_FOUND", { id });
+        throw new AppError("Application not found", 404, "APP_NOT_FOUND", { id });
       }
 
       const current = apps[index];
@@ -150,18 +249,17 @@ export class AppsService {
         throw error;
       }
 
-      throw new AppError("Не удалось обновить приложение", 500, "APP_UPDATE_FAILED", { id });
+      throw new AppError("Failed to update application", 500, "APP_UPDATE_FAILED", { id });
     }
   }
 
-  /** Удаляет приложение из хранилища. */
   public async deleteApp(id: string): Promise<void> {
     try {
       const apps = await this.repository.findAll();
       const next = apps.filter((entry) => entry.id !== id);
 
       if (apps.length === next.length) {
-        throw new AppError("Приложение не найдено", 404, "APP_NOT_FOUND", { id });
+        throw new AppError("Application not found", 404, "APP_NOT_FOUND", { id });
       }
 
       await this.repository.saveAll(next);
@@ -170,68 +268,381 @@ export class AppsService {
         throw error;
       }
 
-      throw new AppError("Не удалось удалить приложение", 500, "APP_DELETE_FAILED", { id });
+      throw new AppError("Failed to delete application", 500, "APP_DELETE_FAILED", { id });
     }
   }
 
-  /** Сканирует стандартные директории и возвращает кандидатов для добавления. */
   public async scanDefaultApps(): Promise<AppEntry[]> {
     try {
-      const scanned =
-        this.platform === "windows" ? await this.scanWindowsApps() : await this.scanLinuxApps();
+      const scanned = this.platform === "windows" ? await this.scanWindowsApps() : await this.scanLinuxApps();
       return this.withResolvedIcons(scanned);
     } catch (error) {
-      this.logger.warn("Сканирование приложений завершилось с ошибкой", {
+      this.logger.warn("Application scan failed", {
         error: error instanceof Error ? error.message : "unknown",
       });
-      throw new AppError("Не удалось просканировать приложения", 500, "APP_SCAN_FAILED");
+      throw new AppError("Failed to scan applications", 500, "APP_SCAN_FAILED");
+    }
+  }
+
+  public async createDraftFromSystemPicker(): Promise<CreateAppInput> {
+    try {
+      const executablePath =
+        this.platform === "windows" ? await this.pickWindowsExecutable() : await this.pickLinuxExecutable();
+
+      return this.buildDraftFromExecutable(executablePath);
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+
+      this.logger.warn("System file picker failed", {
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      throw new AppError("Failed to open the system file picker", 500, "APP_PICKER_FAILED");
     }
   }
 
   private async scanWindowsApps(): Promise<AppEntry[]> {
-    const roots = [
-      process.env["ProgramFiles"],
-      process.env["ProgramFiles(x86)"],
-      process.env["LOCALAPPDATA"],
-      "C:\\Program Files",
-      "C:\\Program Files (x86)",
-    ].filter((value): value is string => Boolean(value));
+    const discovered = await this.scanWindowsDiscoveryCandidates();
+    const ranked = new Map<string, { score: number; entry: AppEntry }>();
 
-    const seen = new Set<string>();
-    const candidates: AppEntry[] = [];
+    for (const candidate of discovered) {
+      const targetPath = candidate.targetPath?.trim();
+      if (!targetPath || !this.isSupportedWindowsAppTarget(targetPath)) {
+        continue;
+      }
 
-    for (const root of roots) {
-      await this.walkDirectory(root, 0, 2, async (entryPath) => {
-        if (candidates.length >= MAX_SCAN_RESULTS) {
-          return;
+      try {
+        const info = await stat(targetPath);
+        if (!info.isFile()) {
+          continue;
         }
+      } catch {
+        continue;
+      }
 
-        if (!entryPath.toLowerCase().endsWith(".exe")) {
-          return;
-        }
+      if (this.isExcludedWindowsCandidate(candidate)) {
+        continue;
+      }
 
-        if (seen.has(entryPath)) {
-          return;
-        }
+      const displayName = this.getPreferredDisplayName(candidate.name || targetPath, targetPath);
+      const score = this.rankWindowsCandidate(candidate, displayName, targetPath);
 
-        seen.add(entryPath);
-        const name = path.basename(entryPath, ".exe");
-        candidates.push({
+      if (score < 25) {
+        continue;
+      }
+
+      const dedupeKey = `${displayName.toLowerCase()}::${targetPath.toLowerCase()}`;
+      const current = ranked.get(dedupeKey);
+
+      if (current && current.score >= score) {
+        continue;
+      }
+
+      ranked.set(dedupeKey, {
+        score,
+        entry: {
           id: uuidv4(),
-          name,
+          name: displayName,
           icon: "",
-          executablePath: entryPath,
-          sortOrder: candidates.length,
+          executablePath: targetPath,
+          args: this.parseArguments(candidate.arguments),
+          workingDirectory: candidate.workingDirectory?.trim() || path.win32.dirname(targetPath),
+          category: this.inferCategory(displayName, targetPath),
+          sortOrder: 0,
           platform: "windows",
-        });
+        },
       });
+    }
 
-      if (candidates.length >= MAX_SCAN_RESULTS) {
-        break;
+    return Array.from(ranked.values())
+      .sort((left, right) => right.score - left.score || left.entry.name.localeCompare(right.entry.name))
+      .slice(0, MAX_SCAN_RESULTS)
+      .map((item, index) => ({
+        ...item.entry,
+        sortOrder: index,
+      }));
+  }
+
+  private async scanWindowsDiscoveryCandidates(): Promise<WindowsDiscoveryCandidate[]> {
+    const script = `
+$ErrorActionPreference = "Stop"
+$shell = New-Object -ComObject WScript.Shell
+$locations = @(
+  [Environment]::GetFolderPath("Desktop"),
+  [Environment]::GetFolderPath("CommonDesktopDirectory"),
+  [Environment]::GetFolderPath("StartMenu"),
+  [Environment]::GetFolderPath("CommonStartMenu")
+) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+
+$results = New-Object System.Collections.Generic.List[object]
+
+foreach ($location in $locations) {
+  Get-ChildItem -Path $location -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+    $extension = $_.Extension.ToLowerInvariant()
+
+    if ($extension -eq ".lnk") {
+      try {
+        $shortcut = $shell.CreateShortcut($_.FullName)
+        if ([string]::IsNullOrWhiteSpace($shortcut.TargetPath)) { return }
+
+        $results.Add([PSCustomObject]@{
+          name = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
+          targetPath = $shortcut.TargetPath
+          arguments = $shortcut.Arguments
+          workingDirectory = $shortcut.WorkingDirectory
+          sourcePath = $_.FullName
+        })
+      } catch {
+        return
+      }
+
+      return
+    }
+
+    if ($extension -eq ".exe") {
+      $results.Add([PSCustomObject]@{
+        name = [System.IO.Path]::GetFileNameWithoutExtension($_.Name)
+        targetPath = $_.FullName
+        arguments = ""
+        workingDirectory = $_.DirectoryName
+        sourcePath = $_.FullName
+      })
+    }
+  }
+}
+
+$results | ConvertTo-Json -Compress
+`.trim();
+
+    const parsed = await this.execPowerShellJson<WindowsDiscoveryCandidate | WindowsDiscoveryCandidate[]>(script);
+    if (!parsed) {
+      return [];
+    }
+
+    return Array.isArray(parsed) ? parsed : [parsed];
+  }
+
+  private rankWindowsCandidate(
+    candidate: WindowsDiscoveryCandidate,
+    displayName: string,
+    targetPath: string,
+  ): number {
+    const source = `${candidate.sourcePath ?? ""} ${displayName} ${targetPath}`.toLowerCase();
+    let score = 0;
+
+    if (source.includes("\\desktop") || source.includes("/desktop")) {
+      score += 80;
+    }
+
+    if (source.includes("start menu")) {
+      score += 45;
+    }
+
+    if (targetPath.toLowerCase().includes("program files")) {
+      score += 24;
+    }
+
+    if (targetPath.toLowerCase().includes("appdata\\local")) {
+      score += 18;
+    }
+
+    if (targetPath.toLowerCase().includes("windows\\system32")) {
+      score -= 100;
+    }
+
+    if (targetPath.toLowerCase().includes("windowsapps")) {
+      score -= 20;
+    }
+
+    for (const keyword of WINDOWS_PRIORITY_KEYWORDS) {
+      if (source.includes(keyword)) {
+        score += 70;
       }
     }
 
-    return candidates;
+    if (displayName.length >= 3 && displayName.length <= 42) {
+      score += 10;
+    }
+
+    if (candidate.arguments?.trim()) {
+      score += 4;
+    }
+
+    return score;
+  }
+
+  private isExcludedWindowsCandidate(candidate: WindowsDiscoveryCandidate): boolean {
+    const haystack = `${candidate.name ?? ""} ${candidate.targetPath ?? ""} ${candidate.sourcePath ?? ""}`.toLowerCase();
+    return WINDOWS_EXCLUDED_KEYWORDS.some((keyword) => haystack.includes(keyword));
+  }
+
+  private isSupportedWindowsAppTarget(targetPath: string): boolean {
+    const extension = path.win32.extname(targetPath).toLowerCase();
+    return WINDOWS_APP_EXTENSIONS.has(extension);
+  }
+
+  private async pickWindowsExecutable(): Promise<string> {
+    const script = `
+$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = "Select an application to add to PhoneDesk"
+$dialog.Filter = "Applications (*.exe;*.bat;*.cmd;*.com)|*.exe;*.bat;*.cmd;*.com|All files (*.*)|*.*"
+$dialog.Multiselect = $false
+$dialog.CheckFileExists = $true
+$dialog.RestoreDirectory = $true
+
+$result = $dialog.ShowDialog()
+if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
+  exit ${WINDOWS_PICKER_EXIT_CANCELLED}
+}
+
+[PSCustomObject]@{ path = $dialog.FileName } | ConvertTo-Json -Compress
+`.trim();
+
+    try {
+      const parsed = await this.execPowerShellJson<{ path?: string }>(script);
+      const selectedPath = parsed?.path?.trim();
+
+      if (!selectedPath) {
+        throw new AppError("No executable was selected", 400, "APP_PICKER_EMPTY_SELECTION");
+      }
+
+      return selectedPath;
+    } catch (error) {
+      if (this.isExecCancelled(error)) {
+        throw new AppError("Selection cancelled", 400, "APP_PICKER_CANCELLED");
+      }
+
+      throw error;
+    }
+  }
+
+  private async pickLinuxExecutable(): Promise<string> {
+    if (await this.commandExists("zenity")) {
+      try {
+        const result = await this.execFileAsync("zenity", [
+          "--file-selection",
+          "--title=Select an application to add to PhoneDesk",
+        ]);
+
+        const selectedPath = result.stdout.trim();
+        if (!selectedPath) {
+          throw new AppError("No executable was selected", 400, "APP_PICKER_EMPTY_SELECTION");
+        }
+
+        return selectedPath;
+      } catch (error) {
+        if (this.isExecCancelled(error)) {
+          throw new AppError("Selection cancelled", 400, "APP_PICKER_CANCELLED");
+        }
+
+        throw error;
+      }
+    }
+
+    if (await this.commandExists("kdialog")) {
+      try {
+        const result = await this.execFileAsync("kdialog", [
+          "--getopenfilename",
+          homedir(),
+          "*",
+          "Select an application to add to PhoneDesk",
+        ]);
+
+        const selectedPath = result.stdout.trim();
+        if (!selectedPath) {
+          throw new AppError("No executable was selected", 400, "APP_PICKER_EMPTY_SELECTION");
+        }
+
+        return selectedPath;
+      } catch (error) {
+        if (this.isExecCancelled(error)) {
+          throw new AppError("Selection cancelled", 400, "APP_PICKER_CANCELLED");
+        }
+
+        throw error;
+      }
+    }
+
+    throw new AppError(
+      "No supported desktop file picker was found. Install zenity or kdialog, or use advanced manual entry.",
+      503,
+      "APP_PICKER_UNAVAILABLE",
+    );
+  }
+
+  private buildDraftFromExecutable(executablePath: string): CreateAppInput {
+    const normalizedPath = executablePath.trim();
+    const executableBase = path.parse(normalizedPath).name;
+    const displayName = this.getPreferredDisplayName(executableBase, normalizedPath);
+
+    return {
+      name: displayName,
+      icon: "",
+      executablePath: normalizedPath,
+      workingDirectory: path.dirname(normalizedPath),
+      category: this.inferCategory(displayName, normalizedPath),
+      platform: this.platform,
+    };
+  }
+
+  private getPreferredDisplayName(nameOrPath: string, executablePath?: string): string {
+    const rawBaseName = executablePath
+      ? path.parse(path.basename(executablePath)).name
+      : path.parse(path.basename(nameOrPath)).name || nameOrPath;
+
+    const fromMap = DISPLAY_NAME_BY_EXECUTABLE[rawBaseName.toLowerCase()];
+    if (fromMap) {
+      return fromMap;
+    }
+
+    const candidate = path.parse(path.basename(nameOrPath)).name || nameOrPath;
+    return candidate
+      .replace(/[._-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (token) => token.toUpperCase());
+  }
+
+  private inferCategory(name: string, executablePath: string): string | undefined {
+    const haystack = `${name} ${executablePath}`.toLowerCase();
+
+    if (/(chrome|firefox|edge|brave|opera|browser)/.test(haystack)) {
+      return "Browser";
+    }
+
+    if (/(visual studio|code|pycharm|intellij|webstorm|datagrip|rider|docker|postman|terminal|git)/.test(haystack)) {
+      return "Development";
+    }
+
+    if (/(discord|telegram|slack|teams|zoom|skype)/.test(haystack)) {
+      return "Communication";
+    }
+
+    if (/(spotify|vlc|obs|music|video|netflix|media|photoshop|premiere|blender)/.test(haystack)) {
+      return "Media";
+    }
+
+    if (/(steam|epic|battle.net|riot|game|unity|unreal)/.test(haystack)) {
+      return "Gaming";
+    }
+
+    if (/(word|excel|powerpoint|onenote|office|notepad|acrobat)/.test(haystack)) {
+      return "Productivity";
+    }
+
+    return undefined;
+  }
+
+  private parseArguments(argsLine?: string): string[] | undefined {
+    if (!argsLine?.trim()) {
+      return undefined;
+    }
+
+    const tokens = this.tokenizeCommand(argsLine);
+    return tokens.length > 0 ? tokens : undefined;
   }
 
   private async scanLinuxApps(): Promise<AppEntry[]> {
@@ -259,20 +670,17 @@ export class AppsService {
       const normalizedName = name.trim();
       const normalizedPath = executablePath.trim();
 
-      if (!normalizedName || !normalizedPath) {
-        return;
-      }
-
-      if (seen.has(normalizedPath)) {
+      if (!normalizedName || !normalizedPath || seen.has(normalizedPath)) {
         return;
       }
 
       seen.add(normalizedPath);
       candidates.push({
         id: uuidv4(),
-        name: normalizedName,
+        name: this.getPreferredDisplayName(normalizedName, normalizedPath),
         icon,
         executablePath: normalizedPath,
+        category: this.inferCategory(normalizedName, normalizedPath),
         sortOrder: candidates.length,
         platform: "linux",
       });
@@ -297,11 +705,7 @@ export class AppsService {
       }
 
       for (const entry of entries) {
-        if (candidates.length >= MAX_SCAN_RESULTS) {
-          break;
-        }
-
-        if (!entry.endsWith(".desktop")) {
+        if (candidates.length >= MAX_SCAN_RESULTS || !entry.endsWith(".desktop")) {
           continue;
         }
 
@@ -312,11 +716,7 @@ export class AppsService {
           continue;
         }
 
-        const resolvedPath = await this.resolveLinuxExecutablePath(
-          desktopEntry.executablePath,
-          binaryRoots,
-        );
-
+        const resolvedPath = await this.resolveLinuxExecutablePath(desktopEntry.executablePath, binaryRoots);
         addCandidate(desktopEntry.name, resolvedPath, desktopEntry.icon);
       }
     }
@@ -509,10 +909,7 @@ export class AppsService {
     if (tokens[0] === "env") {
       commandIndex = 1;
 
-      while (
-        commandIndex < tokens.length &&
-        /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(tokens[commandIndex])
-      ) {
+      while (commandIndex < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(tokens[commandIndex])) {
         commandIndex += 1;
       }
 
@@ -522,11 +919,7 @@ export class AppsService {
     }
 
     const command = tokens[commandIndex];
-    if (!command) {
-      return null;
-    }
-
-    return command.trim();
+    return command ? command.trim() : null;
   }
 
   private tokenizeCommand(command: string): string[] {
@@ -594,9 +987,7 @@ export class AppsService {
 
         try {
           const info = await stat(candidatePath);
-          const executable = info.isFile() && (info.mode & 0o111) !== 0;
-
-          if (executable) {
+          if (info.isFile() && (info.mode & 0o111) !== 0) {
             return candidatePath;
           }
         } catch {
@@ -612,9 +1003,7 @@ export class AppsService {
 
       try {
         const info = await stat(candidatePath);
-        const executable = info.isFile() && (info.mode & 0o111) !== 0;
-
-        if (executable) {
+        if (info.isFile() && (info.mode & 0o111) !== 0) {
           return candidatePath;
         }
       } catch {
@@ -630,14 +1019,12 @@ export class AppsService {
       return entries;
     }
 
-    const resolved = await Promise.all(
+    return Promise.all(
       entries.map(async (entry) => ({
         ...entry,
         icon: await this.resolveLinuxAppIcon(entry),
       })),
     );
-
-    return resolved;
   }
 
   private async persistLinuxIconsIfNeeded(entries: AppEntry[]): Promise<AppEntry[]> {
@@ -646,7 +1033,6 @@ export class AppsService {
     }
 
     this.persistedIconMigrationDone = true;
-
     let changed = false;
 
     const nextEntries = await Promise.all(
@@ -655,10 +1041,7 @@ export class AppsService {
 
         if (resolvedIcon && resolvedIcon !== entry.icon) {
           changed = true;
-          return {
-            ...entry,
-            icon: resolvedIcon,
-          };
+          return { ...entry, icon: resolvedIcon };
         }
 
         return entry;
@@ -673,7 +1056,7 @@ export class AppsService {
       await this.repository.saveAll(nextEntries);
       return nextEntries;
     } catch (error) {
-      this.logger.warn("Не удалось сохранить обновлённые иконки приложений", {
+      this.logger.warn("Failed to persist refreshed Linux icons", {
         error: error instanceof Error ? error.message : "unknown",
       });
       return entries;
@@ -719,35 +1102,21 @@ export class AppsService {
       return false;
     }
 
-    if (icon.startsWith("data:image")) {
+    if (icon.startsWith("data:image") || icon.startsWith("http://") || icon.startsWith("https://")) {
       return true;
     }
 
-    if (icon.startsWith("http://") || icon.startsWith("https://")) {
-      return true;
-    }
-
-    if (icon.startsWith("/") && !icon.startsWith("/usr/") && !icon.startsWith("/home/")) {
-      return true;
-    }
-
-    return false;
+    return icon.startsWith("/") && !icon.startsWith("/usr/") && !icon.startsWith("/home/");
   }
 
   private collectIconHints(app: Pick<AppEntry, "name" | "icon" | "executablePath">): string[] {
     const hints = new Set<string>();
 
     const addHint = (value: string | undefined): void => {
-      if (!value) {
-        return;
+      const normalized = value?.trim();
+      if (normalized) {
+        hints.add(normalized);
       }
-
-      const normalized = value.trim();
-      if (!normalized) {
-        return;
-      }
-
-      hints.add(normalized);
     };
 
     addHint(app.icon);
@@ -778,14 +1147,12 @@ export class AppsService {
     }
 
     const iconIndex = await this.getLinuxIconIndex();
-
     const directMatch = iconIndex.get(normalizedName);
     if (directMatch) {
       return directMatch;
     }
 
-    const fallbackNames = new Set<string>();
-    fallbackNames.add(normalizedName.replace(/-symbolic$/, ""));
+    const fallbackNames = new Set<string>([normalizedName.replace(/-symbolic$/, "")]);
     if (normalizedName.includes(".")) {
       fallbackNames.add(normalizedName.split(".").at(-1) ?? "");
     }
@@ -794,12 +1161,7 @@ export class AppsService {
     }
 
     for (const fallback of fallbackNames) {
-      const name = fallback.trim();
-      if (!name) {
-        continue;
-      }
-
-      const match = iconIndex.get(name);
+      const match = iconIndex.get(fallback.trim());
       if (match) {
         return match;
       }
@@ -818,7 +1180,7 @@ export class AppsService {
           return iconPath;
         }
       } catch {
-        // ignore and try extension-based fallbacks below
+        // Ignore and continue with extension fallbacks.
       }
     }
 
@@ -863,8 +1225,7 @@ export class AppsService {
       }
 
       const fileBuffer = await readFile(iconPath);
-      const mime = ICON_MIME_TYPES[extension];
-      const dataUrl = `data:${mime};base64,${fileBuffer.toString("base64")}`;
+      const dataUrl = `data:${ICON_MIME_TYPES[extension]};base64,${fileBuffer.toString("base64")}`;
 
       if (dataUrl.length > MAX_ICON_DATA_URL_LENGTH) {
         this.iconDataUrlCache.set(iconPath, "");
@@ -907,19 +1268,10 @@ export class AppsService {
       await this.indexIconsFromRoot(root, index);
     }
 
-    const flattenedIndex = new Map<string, string>();
-
-    for (const [name, candidate] of index.entries()) {
-      flattenedIndex.set(name, candidate.path);
-    }
-
-    return flattenedIndex;
+    return new Map(Array.from(index.entries(), ([name, candidate]) => [name, candidate.path]));
   }
 
-  private async indexIconsFromRoot(
-    root: string,
-    index: Map<string, IconIndexCandidate>,
-  ): Promise<void> {
+  private async indexIconsFromRoot(root: string, index: Map<string, IconIndexCandidate>): Promise<void> {
     try {
       await access(root, constants.R_OK);
     } catch {
@@ -951,7 +1303,6 @@ export class AppsService {
           if (current.depth < ICON_INDEX_MAX_DEPTH && !entry.name.startsWith(".")) {
             queue.push({ directory: entryPath, depth: current.depth + 1 });
           }
-
           continue;
         }
 
@@ -989,7 +1340,6 @@ export class AppsService {
 
     for (const alias of aliases) {
       const current = index.get(alias);
-
       if (!current || score > current.score) {
         index.set(alias, { path: iconPath, score });
       }
@@ -1034,19 +1384,15 @@ export class AppsService {
     if (lower.includes("/apps/")) {
       score += 20;
     }
-
     if (lower.includes("/pixmaps/")) {
       score += 16;
     }
-
     if (lower.includes("/hicolor/")) {
       score += 12;
     }
-
     if (lower.includes("/scalable/")) {
       score += 10;
     }
-
     if (lower.includes("symbolic")) {
       score -= 20;
     }
@@ -1073,7 +1419,6 @@ export class AppsService {
     }
 
     let entries: string[];
-
     try {
       entries = await readdir(root);
     } catch {
@@ -1098,5 +1443,64 @@ export class AppsService {
         continue;
       }
     }
+  }
+
+  private async commandExists(command: string): Promise<boolean> {
+    try {
+      await this.execFileAsync("which", [command]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async execPowerShellJson<T>(script: string): Promise<T> {
+    const result = await this.execFileAsync(
+      "powershell",
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+      { windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+    );
+
+    const output = result.stdout.trim();
+    if (!output) {
+      throw new AppError("The system command did not return any output", 500, "SYSTEM_COMMAND_EMPTY_OUTPUT");
+    }
+
+    try {
+      return JSON.parse(output) as T;
+    } catch (error) {
+      this.logger.warn("Failed to parse PowerShell JSON output", {
+        output,
+        stderr: result.stderr.trim() || undefined,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      throw new AppError("Failed to read PowerShell output", 500, "POWERSHELL_OUTPUT_INVALID");
+    }
+  }
+
+  private execFileAsync(
+    command: string,
+    args: string[],
+    options: { shell?: boolean; windowsHide?: boolean; maxBuffer?: number } = {},
+  ): Promise<ExecResult> {
+    return new Promise((resolve, reject) => {
+      execFile(command, args, options, (error, stdout, stderr) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve({ stdout, stderr });
+      });
+    });
+  }
+
+  private isExecCancelled(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    const code = (error as { code?: unknown }).code;
+    return code === WINDOWS_PICKER_EXIT_CANCELLED || code === 1;
   }
 }

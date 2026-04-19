@@ -14,7 +14,6 @@ export class MouseService {
     private readonly logger: Logger,
   ) {}
 
-  /** Перемещает курсор на относительное смещение с ограничением диапазона. */
   public async move(dx: number, dy: number): Promise<MouseActionResult> {
     const safeDx = this.clamp(Math.round(dx), -500, 500);
     const safeDy = this.clamp(Math.round(dy), -500, 500);
@@ -32,7 +31,6 @@ export class MouseService {
     }
   }
 
-  /** Выполняет клик указанной кнопкой мыши. */
   public async click(button: "left" | "right"): Promise<MouseActionResult> {
     try {
       await this.strategy.click(button);
@@ -46,7 +44,6 @@ export class MouseService {
     }
   }
 
-  /** Выполняет вертикальный скролл с ограничением диапазона. */
   public async scroll(dy: number): Promise<MouseActionResult> {
     const safeDy = this.clamp(Math.round(dy), -20, 20);
 

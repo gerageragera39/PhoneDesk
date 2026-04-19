@@ -12,7 +12,7 @@ export class PlatformDetector {
       return "linux";
     }
 
-    throw new Error(`Unsupported platform: ${process.platform}. PhoneDesk поддерживает только Windows и Linux.`);
+    throw new Error(`Unsupported platform: ${process.platform}. PhoneDesk currently supports only Windows and Linux.`);
   }
 
   public static getLocalNetworkIp(): string {
