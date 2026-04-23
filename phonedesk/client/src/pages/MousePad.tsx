@@ -246,13 +246,13 @@ export const MousePad = () => {
   };
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 pb-5 pt-4">
-      <header className="glass-panel mb-4 rounded-[28px] p-5">
+    <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-3 pb-3 pt-3 sm:px-4 sm:pb-5 sm:pt-4">
+      <header className="glass-panel mb-3 rounded-[28px] p-4 sm:mb-4 sm:p-5">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-accentSoft/80">Remote mouse</p>
-            <h1 className="mt-3 text-3xl font-semibold text-white">High-speed trackpad mode</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/65">{status}</p>
+            <h1 className="mt-2 text-2xl font-semibold text-white sm:mt-3 sm:text-3xl">High-speed trackpad mode</h1>
+            <p className="mt-2 max-w-2xl text-xs leading-5 text-white/65 sm:text-sm sm:leading-6">{status}</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -266,16 +266,22 @@ export const MousePad = () => {
         </div>
       </header>
 
-      {error && <p className="mb-4 rounded-2xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{error}</p>}
+      {error && <p className="mb-3 rounded-2xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger sm:mb-4">{error}</p>}
 
-      <section className="mb-4 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">One finger: move the cursor</div>
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">Two fingers: scroll vertically</div>
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">Double tap or button bar: click</div>
+      <section className="mb-3 grid grid-cols-3 gap-2 sm:mb-4 sm:gap-3">
+        <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-center text-[11px] leading-4 text-white/70 sm:p-4 sm:text-sm sm:text-left">
+          One finger: move
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-center text-[11px] leading-4 text-white/70 sm:p-4 sm:text-sm sm:text-left">
+          Two fingers: scroll
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-center text-[11px] leading-4 text-white/70 sm:p-4 sm:text-sm sm:text-left">
+          Double tap: click
+        </div>
       </section>
 
       <section
-        className="relative flex-[9] touch-none overflow-hidden rounded-[32px] border border-white/10 bg-slate-950/80"
+        className="relative min-h-[58dvh] flex-1 touch-none overflow-hidden rounded-[32px] border border-white/10 bg-slate-950/80 sm:min-h-[50dvh]"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -296,7 +302,7 @@ export const MousePad = () => {
       <section className="mt-4 grid flex-[1] grid-cols-2 overflow-hidden rounded-[28px] border border-white/10 bg-slate-900/80">
         <button
           type="button"
-          className="h-full min-h-[84px] border-r border-white/10 text-lg font-semibold text-white transition active:bg-white/10"
+          className="h-full min-h-[72px] border-r border-white/10 text-base font-semibold text-white transition active:bg-white/10 sm:min-h-[84px] sm:text-lg"
           onClick={() => {
             void handleClick("left");
           }}
@@ -305,7 +311,7 @@ export const MousePad = () => {
         </button>
         <button
           type="button"
-          className="h-full min-h-[84px] text-lg font-semibold text-white transition active:bg-white/10"
+          className="h-full min-h-[72px] text-base font-semibold text-white transition active:bg-white/10 sm:min-h-[84px] sm:text-lg"
           onClick={() => {
             void handleClick("right");
           }}

@@ -6,7 +6,7 @@ import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import { AppError } from "../../shared/errors/AppError";
 import type { Logger } from "../../shared/utils/Logger";
-import type { SupportedPlatform } from "../../shared/utils/PlatformDetector";
+import { PlatformDetector, type SupportedPlatform } from "../../shared/utils/PlatformDetector";
 import { AppsRepository } from "./AppsRepository";
 import type { AppEntry, CreateAppInput, UpdateAppInput } from "./AppTypes";
 
@@ -161,7 +161,12 @@ export class AppsService {
   public async getApps(): Promise<AppEntry[]> {
     try {
       const apps = await this.repository.findAll();
-      const normalizedApps = this.platform === "linux" ? await this.persistLinuxIconsIfNeeded(apps) : apps;
+      const normalizedApps =
+        this.platform === "linux"
+          ? await this.persistLinuxIconsIfNeeded(apps)
+          : this.platform === "windows"
+            ? await this.persistWindowsIconsIfNeeded(apps)
+            : apps;
 
       return normalizedApps
         .filter((entry) => entry.platform === "both" || entry.platform === this.platform)
@@ -574,31 +579,33 @@ if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
   }
 
   private buildDraftFromExecutable(executablePath: string): CreateAppInput {
+    const platformPath = this.platform === "windows" ? path.win32 : path.posix;
     const normalizedPath = executablePath.trim();
-    const executableBase = path.parse(normalizedPath).name;
+    const executableBase = platformPath.parse(normalizedPath).name;
     const displayName = this.getPreferredDisplayName(executableBase, normalizedPath);
 
     return {
       name: displayName,
       icon: "",
       executablePath: normalizedPath,
-      workingDirectory: path.dirname(normalizedPath),
+      workingDirectory: platformPath.dirname(normalizedPath),
       category: this.inferCategory(displayName, normalizedPath),
       platform: this.platform,
     };
   }
 
   private getPreferredDisplayName(nameOrPath: string, executablePath?: string): string {
+    const platformPath = this.platform === "windows" ? path.win32 : path.posix;
     const rawBaseName = executablePath
-      ? path.parse(path.basename(executablePath)).name
-      : path.parse(path.basename(nameOrPath)).name || nameOrPath;
+      ? platformPath.parse(platformPath.basename(executablePath)).name
+      : platformPath.parse(platformPath.basename(nameOrPath)).name || nameOrPath;
 
     const fromMap = DISPLAY_NAME_BY_EXECUTABLE[rawBaseName.toLowerCase()];
     if (fromMap) {
       return fromMap;
     }
 
-    const candidate = path.parse(path.basename(nameOrPath)).name || nameOrPath;
+    const candidate = platformPath.parse(platformPath.basename(nameOrPath)).name || nameOrPath;
     return candidate
       .replace(/[._-]+/g, " ")
       .replace(/\s+/g, " ")
@@ -1015,14 +1022,15 @@ if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
   }
 
   private async withResolvedIcons(entries: AppEntry[]): Promise<AppEntry[]> {
-    if (this.platform !== "linux") {
-      return entries;
-    }
-
     return Promise.all(
       entries.map(async (entry) => ({
         ...entry,
-        icon: await this.resolveLinuxAppIcon(entry),
+        icon:
+          this.platform === "windows"
+            ? await this.resolveWindowsAppIcon(entry)
+            : this.platform === "linux"
+              ? await this.resolveLinuxAppIcon(entry)
+              : entry.icon,
       })),
     );
   }
@@ -1063,6 +1071,66 @@ if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
     }
   }
 
+  private async persistWindowsIconsIfNeeded(entries: AppEntry[]): Promise<AppEntry[]> {
+    if (this.persistedIconMigrationDone || entries.length === 0) {
+      return entries;
+    }
+
+    this.persistedIconMigrationDone = true;
+    let changed = false;
+
+    const nextEntries = await Promise.all(
+      entries.map(async (entry) => {
+        const resolvedIcon = await this.resolveWindowsAppIcon(entry);
+
+        if (resolvedIcon && resolvedIcon !== entry.icon) {
+          changed = true;
+          return { ...entry, icon: resolvedIcon };
+        }
+
+        return entry;
+      }),
+    );
+
+    if (!changed) {
+      return entries;
+    }
+
+    try {
+      await this.repository.saveAll(nextEntries);
+      return nextEntries;
+    } catch (error) {
+      this.logger.warn("Failed to persist refreshed Windows icons", {
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      return entries;
+    }
+  }
+
+  private async resolveWindowsAppIcon(app: Pick<AppEntry, "name" | "icon" | "executablePath">): Promise<string> {
+    const currentIcon = app.icon.trim();
+
+    if (this.isAlreadyRenderableIcon(currentIcon)) {
+      return currentIcon;
+    }
+
+    if (!this.isSupportedWindowsAppTarget(app.executablePath.trim())) {
+      return currentIcon;
+    }
+
+    const cacheKey = `${currentIcon}|${app.executablePath}|${app.name}`.toLowerCase();
+    const cached = this.resolvedIconCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const dataUrl = await this.extractWindowsIconDataUrl(app.executablePath);
+    const resolved = dataUrl || currentIcon;
+
+    this.resolvedIconCache.set(cacheKey, resolved);
+    return resolved;
+  }
+
   private async resolveLinuxAppIcon(app: Pick<AppEntry, "name" | "icon" | "executablePath">): Promise<string> {
     const currentIcon = app.icon.trim();
 
@@ -1097,6 +1165,81 @@ if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
     return currentIcon;
   }
 
+  private async extractWindowsIconDataUrl(executablePath: string): Promise<string | null> {
+    const cacheKey = `win32:${executablePath.trim().toLowerCase()}`;
+    const cached = this.iconDataUrlCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached.length > 0 ? cached : null;
+    }
+
+    const safePath = executablePath.trim();
+    if (!safePath) {
+      this.iconDataUrlCache.set(cacheKey, "");
+      return null;
+    }
+
+    const script = `
+$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Drawing
+$path = '${this.escapePowerShellSingleQuotedString(safePath)}'
+
+if (-not (Test-Path $path)) {
+  return
+}
+
+try {
+  $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($path)
+  if ($null -eq $icon) {
+    return
+  }
+
+  $bitmap = $icon.ToBitmap()
+  $stream = New-Object System.IO.MemoryStream
+
+  try {
+    $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+    [Convert]::ToBase64String($stream.ToArray())
+  } finally {
+    $stream.Dispose()
+    $bitmap.Dispose()
+    $icon.Dispose()
+  }
+} catch {
+  return
+}
+`.trim();
+
+    try {
+      const result = await this.execFileAsync(
+        PlatformDetector.resolveWindowsCommand("powershell"),
+        ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
+        { windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
+      );
+
+      const base64 = result.stdout.trim();
+      if (!base64) {
+        this.iconDataUrlCache.set(cacheKey, "");
+        return null;
+      }
+
+      const dataUrl = `data:image/png;base64,${base64}`;
+      if (dataUrl.length > MAX_ICON_DATA_URL_LENGTH) {
+        this.iconDataUrlCache.set(cacheKey, "");
+        return null;
+      }
+
+      this.iconDataUrlCache.set(cacheKey, dataUrl);
+      return dataUrl;
+    } catch (error) {
+      this.logger.warn("Failed to extract Windows application icon", {
+        executablePath: safePath,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      this.iconDataUrlCache.set(cacheKey, "");
+      return null;
+    }
+  }
+
   private isAlreadyRenderableIcon(icon: string): boolean {
     if (!icon) {
       return false;
@@ -1107,6 +1250,10 @@ if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
     }
 
     return icon.startsWith("/") && !icon.startsWith("/usr/") && !icon.startsWith("/home/");
+  }
+
+  private escapePowerShellSingleQuotedString(value: string): string {
+    return value.replace(/'/g, "''");
   }
 
   private collectIconHints(app: Pick<AppEntry, "name" | "icon" | "executablePath">): string[] {
@@ -1456,7 +1603,7 @@ if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
 
   private async execPowerShellJson<T>(script: string): Promise<T> {
     const result = await this.execFileAsync(
-      "powershell",
+      PlatformDetector.resolveWindowsCommand("powershell"),
       ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script],
       { windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
     );

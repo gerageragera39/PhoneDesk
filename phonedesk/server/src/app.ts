@@ -65,7 +65,7 @@ const bootstrap = async (): Promise<void> => {
   const authService = new AuthService(authStorage, logger);
   const bootstrapAuthResult = await authService.bootstrap();
 
-  if (process.platform !== "win32") {
+  if (appConfig.platform !== "windows") {
     try {
       chmodSync(appConfig.configFilePath, 0o600);
     } catch (error) {
@@ -179,8 +179,7 @@ const bootstrap = async (): Promise<void> => {
 
   const server = app.listen(appConfig.port, appConfig.host, () => {
     logger.info(`PhoneDesk server is running on http://${appConfig.host}:${appConfig.port}`);
-
-    const localIp = PlatformDetector.getLocalNetworkIp();
+    const startupLinks = PlatformDetector.getStartupLinks(appConfig.port);
 
     if (bootstrapAuthResult.generatedPin) {
       console.log(
@@ -188,7 +187,19 @@ const bootstrap = async (): Promise<void> => {
       );
     }
 
-    console.log(`Open PhoneDesk on your phone: http://${localIp}:${appConfig.port}`);
+    console.log(`Open PhoneDesk on this computer: ${startupLinks.localUrl}`);
+
+    if (startupLinks.phoneLinks.length > 0) {
+      console.log("Open PhoneDesk on your phone:");
+
+      for (const link of startupLinks.phoneLinks) {
+        console.log(`  - ${link.label}: ${link.url}`);
+      }
+    } else {
+      console.log(`Open PhoneDesk on your phone: ${startupLinks.localUrl}`);
+    }
+
+    console.log(`Admin page (change PIN, host computer only): ${startupLinks.adminUrl}`);
   });
 
   const shutdown = (signal: NodeJS.Signals): void => {

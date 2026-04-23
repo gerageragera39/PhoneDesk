@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { AppError } from "../../shared/errors/AppError";
+import { PlatformDetector } from "../../shared/utils/PlatformDetector";
 import type { IMouseStrategy } from "./IMouseStrategy";
 
 interface WorkerReply {
@@ -23,7 +24,7 @@ public static class MouseNative {
   public struct POINT { public int X; public int Y; }
   [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT lpPoint);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
-  [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, int dx, int dy, int dwData, UIntPtr dwExtraInfo);
 }
 "@
 [PSCustomObject]@{ ready = $true } | ConvertTo-Json -Compress | Write-Output
@@ -47,7 +48,8 @@ while (($line = [Console]::In.ReadLine()) -ne $null) {
         }
       }
       "scroll" {
-        [MouseNative]::mouse_event(0x0800, 0, 0, [int]$payload.dy * 120, [UIntPtr]::Zero)
+        $wheelDelta = [int]$payload.dy * 120
+        [MouseNative]::mouse_event(0x0800, 0, 0, $wheelDelta, [UIntPtr]::Zero)
       }
       default {
         throw "Unknown mouse command type: $($payload.type)"
@@ -65,6 +67,7 @@ export class WindowsMouseStrategy implements IMouseStrategy {
   private worker: ChildProcessWithoutNullStreams | null = null;
   private readyPromise: Promise<void> | null = null;
   private readonly pendingCommands: PendingCommand[] = [];
+  private readonly powerShellCommand = PlatformDetector.resolveWindowsCommand("powershell");
   private stdoutBuffer = "";
   private stderrBuffer = "";
 
@@ -106,8 +109,16 @@ export class WindowsMouseStrategy implements IMouseStrategy {
     }
 
     const worker = spawn(
-      "powershell",
-      ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"],
+      this.powerShellCommand,
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-EncodedCommand",
+        Buffer.from(WORKER_BOOTSTRAP_SCRIPT, "utf16le").toString("base64"),
+      ],
       {
         windowsHide: true,
         stdio: ["pipe", "pipe", "pipe"],
@@ -167,7 +178,6 @@ export class WindowsMouseStrategy implements IMouseStrategy {
       this.readyPromise = null;
     });
 
-    worker.stdin.write(`${WORKER_BOOTSTRAP_SCRIPT}\n`);
     return worker;
   }
 

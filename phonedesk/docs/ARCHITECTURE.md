@@ -7,6 +7,7 @@ PhoneDesk is a small full-stack app with a React frontend and an Express backend
 - The **client** is a mobile-optimized PWA-like web app.
 - The **server** provides authentication, application management, launch orchestration, and mouse control.
 - Persistent state is stored in JSON files inside `data/`.
+- The launcher dashboard exposes a fixed floating shortcut to the mouse-control page on mobile.
 
 ## Backend modules
 
@@ -23,6 +24,8 @@ PhoneDesk is a small full-stack app with a React frontend and an Express backend
 - Returns app lists for users and admins
 - Provides native executable picking
 - Scans likely user-facing apps on Windows and Linux
+- Extracts Windows executable icons and resolves Linux icon paths/data URLs
+- Filters scan suggestions against apps already present in the launcher
 
 ### `launcher`
 
@@ -35,6 +38,7 @@ PhoneDesk is a small full-stack app with a React frontend and an Express backend
 - Accepts relative move/click/scroll commands
 - Uses `xdotool` on Linux
 - Uses a persistent PowerShell worker on Windows for lower latency
+- Supports Windows-host control even when the server runs inside WSL
 
 ## Storage model
 

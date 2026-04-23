@@ -33,6 +33,14 @@ npm start
 - Open the Admin page only on the host machine.
 - Rotate the PIN after first startup.
 - Back up only the files you truly need from `data/`.
+- On WSL-based setups, use the printed Windows-host phone URL instead of the WSL guest IP.
+
+## Runtime behavior to expect
+
+- The server prints local, phone, and Admin URLs on startup.
+- Windows scans return launcher-ready suggestions with extracted icons.
+- Suggestions already added to the launcher disappear from the scan-results list.
+- The dashboard includes a fixed shortcut button for mouse mode.
 
 ## Git guidance
 

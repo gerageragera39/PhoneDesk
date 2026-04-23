@@ -8,6 +8,13 @@ import type { ApiErrorResponse, AppEntry } from "../types";
 
 const PULL_THRESHOLD = 80;
 
+const MouseGlyph = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+    <rect x="7" y="2.5" width="10" height="19" rx="5" />
+    <path d="M12 2.5v6" />
+  </svg>
+);
+
 export const Dashboard = () => {
   const navigate = useNavigate();
   const clearSession = useAuthStore((state) => state.clearSession);
@@ -131,15 +138,16 @@ export const Dashboard = () => {
   };
 
   return (
-    <div
-      className="mx-auto min-h-screen w-full max-w-6xl overflow-y-auto px-4 pb-10 pt-4"
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={() => {
-        void onTouchEnd();
-      }}
-    >
-      <header className="glass-panel mb-5 rounded-[28px] p-5">
+    <>
+      <div
+        className="mx-auto min-h-screen w-full max-w-6xl overflow-y-auto px-4 pb-10 pt-4"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={() => {
+          void onTouchEnd();
+        }}
+      >
+        <header className="glass-panel mb-5 rounded-[28px] p-5">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
             <p className="text-xs font-semibold uppercase tracking-[0.32em] text-accentSoft/80">Remote launcher</p>
@@ -196,39 +204,51 @@ export const Dashboard = () => {
             </button>
           </div>
         </div>
-      </header>
+        </header>
 
-      <div className="mb-4 h-6 text-center text-xs text-white/60" style={{ opacity: pullDistance > 0 || isFetching ? 1 : 0 }}>
-        {pullLabel}
+        <div className="mb-4 h-6 text-center text-xs text-white/60" style={{ opacity: pullDistance > 0 || isFetching ? 1 : 0 }}>
+          {pullLabel}
+        </div>
+
+        {error && <p className="mb-4 rounded-2xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{error}</p>}
+
+        {isLoading ? (
+          <div className="glass-panel rounded-[28px] p-10 text-center text-white/70">Loading your applications...</div>
+        ) : filteredApps.length === 0 ? (
+          <div className="glass-panel rounded-[28px] p-10 text-center">
+            <h2 className="text-xl font-semibold text-white">No applications match your search</h2>
+            <p className="mt-2 text-sm text-white/60">Try a different keyword or add more apps from the Admin page.</p>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {groupedApps.map(([groupName, groupApps]) => (
+              <section key={groupName}>
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.26em] text-white/40">Section</p>
+                    <h2 className="mt-1 text-xl font-semibold text-white">{groupName}</h2>
+                  </div>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/55">
+                    {groupApps.length} app{groupApps.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <AppGrid apps={groupApps} statuses={statuses} disabled={Boolean(launchingId)} onLaunch={handleLaunch} />
+              </section>
+            ))}
+          </div>
+        )}
       </div>
 
-      {error && <p className="mb-4 rounded-2xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{error}</p>}
-
-      {isLoading ? (
-        <div className="glass-panel rounded-[28px] p-10 text-center text-white/70">Loading your applications...</div>
-      ) : filteredApps.length === 0 ? (
-        <div className="glass-panel rounded-[28px] p-10 text-center">
-          <h2 className="text-xl font-semibold text-white">No applications match your search</h2>
-          <p className="mt-2 text-sm text-white/60">Try a different keyword or add more apps from the Admin page.</p>
-        </div>
-      ) : (
-        <div className="space-y-8">
-          {groupedApps.map(([groupName, groupApps]) => (
-            <section key={groupName}>
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.26em] text-white/40">Section</p>
-                  <h2 className="mt-1 text-xl font-semibold text-white">{groupName}</h2>
-                </div>
-                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/55">
-                  {groupApps.length} app{groupApps.length === 1 ? "" : "s"}
-                </span>
-              </div>
-              <AppGrid apps={groupApps} statuses={statuses} disabled={Boolean(launchingId)} onLaunch={handleLaunch} />
-            </section>
-          ))}
-        </div>
-      )}
-    </div>
+      <Link
+        to="/mouse"
+        aria-label="Open remote mouse controls"
+        className="fixed right-3 top-1/2 z-40 flex -translate-y-1/2 items-center gap-3 rounded-full border border-accent/35 bg-slate-950/90 px-3 py-3 text-white shadow-[0_12px_35px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:border-accent/60 hover:bg-slate-900/95 sm:right-4"
+      >
+        <span className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/15 text-accentSoft shadow-inner shadow-accent/10">
+          <MouseGlyph />
+        </span>
+        <span className="hidden pr-1 text-sm font-semibold sm:inline">Mouse mode</span>
+      </Link>
+    </>
   );
 };

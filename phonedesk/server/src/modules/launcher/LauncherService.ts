@@ -1,8 +1,10 @@
 import type { Response } from "express";
 import type { ChildProcess } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { accessSync, constants as fsConstants, existsSync, statSync } from "node:fs";
 import { AppError } from "../../shared/errors/AppError";
 import type { Logger } from "../../shared/utils/Logger";
+import { PlatformDetector } from "../../shared/utils/PlatformDetector";
 import { AppsService } from "../apps/AppsService";
 import type { AppEntry, AppStatusSnapshot, LaunchResult } from "../apps/AppTypes";
 import type { ILauncherStrategy } from "./platform/ILauncherStrategy";
@@ -55,6 +57,7 @@ export class LauncherService {
 
   private async validateExecutablePath(app: AppEntry, ip: string): Promise<void> {
     const executablePath = app.executablePath;
+    const fileSystemPath = this.resolveExecutablePathForCurrentRuntime(executablePath);
     const hasForbiddenCharacters =
       /[;$`|\n\r]/.test(executablePath) || executablePath.includes("&&") || executablePath.includes("||");
 
@@ -70,7 +73,7 @@ export class LauncherService {
       throw new AppError(`Invalid executable path: ${executablePath}`, 400, "INVALID_EXECUTABLE_PATH");
     }
 
-    if (!existsSync(executablePath)) {
+    if (!existsSync(fileSystemPath)) {
       await this.logger.audit("launch_blocked.invalid_path", {
         ip,
         appId: app.id,
@@ -82,7 +85,7 @@ export class LauncherService {
       throw new AppError(`Executable not found: ${executablePath}`, 400, "EXECUTABLE_NOT_FOUND");
     }
 
-    const stats = statSync(executablePath);
+    const stats = statSync(fileSystemPath);
     if (!stats.isFile()) {
       await this.logger.audit("launch_blocked.invalid_path", {
         ip,
@@ -95,9 +98,9 @@ export class LauncherService {
       throw new AppError(`Executable not found: ${executablePath}`, 400, "EXECUTABLE_NOT_FOUND");
     }
 
-    if (process.platform !== "win32") {
+    if (PlatformDetector.detectPlatform() !== "windows") {
       try {
-        accessSync(executablePath, fsConstants.X_OK);
+        accessSync(fileSystemPath, fsConstants.X_OK);
       } catch {
         await this.logger.audit("launch_blocked.invalid_path", {
           ip,
@@ -109,6 +112,23 @@ export class LauncherService {
 
         throw new AppError(`Executable not found: ${executablePath}`, 400, "EXECUTABLE_NOT_FOUND");
       }
+    }
+  }
+
+  private resolveExecutablePathForCurrentRuntime(executablePath: string): string {
+    if (!PlatformDetector.isWsl() || !/^[A-Za-z]:\\/.test(executablePath)) {
+      return executablePath;
+    }
+
+    try {
+      return execFileSync("wslpath", ["-u", executablePath], {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+    } catch {
+      const driveLetter = executablePath[0]?.toLowerCase();
+      const normalizedRest = executablePath.slice(2).replace(/\\/g, "/");
+      return `/mnt/${driveLetter}${normalizedRest}`;
     }
   }
 

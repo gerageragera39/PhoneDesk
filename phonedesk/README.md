@@ -5,10 +5,12 @@ A polished local launcher and remote mouse dashboard for Windows and Linux.
 ## Highlights
 
 - Mobile-friendly launcher dashboard with live app status
+- Floating mouse shortcut on the launcher dashboard for one-tap access to trackpad mode
 - PIN-based authentication with JWT sessions and brute-force protection
 - Localhost-only admin panel for sensitive actions
 - Quick add flow via a **native system file picker**
 - Smarter Windows scan based on desktop + Start Menu shortcuts
+- Windows app scan now extracts and stores executable icons automatically
 - Faster Windows mouse control using a persistent PowerShell worker
 - JSON storage with zero database setup
 - PWA-ready frontend served directly from the Node server
@@ -36,6 +38,7 @@ phonedesk/
 
 - Node.js 20+
 - Windows or Linux
+- WSL is supported for Windows-host control workflows
 - Linux mouse support: `xdotool`
 - Linux window focusing: `wmctrl` recommended
 
@@ -84,7 +87,10 @@ On the first run, PhoneDesk:
 
 1. creates the runtime `data/` files if they do not exist
 2. generates a temporary PIN unless `INITIAL_PIN` is set
-3. prints the phone access URL in the terminal
+3. prints:
+   - a local URL for the host machine
+   - one or more phone URLs for the local network
+   - a localhost-only Admin URL for PIN rotation
 
 Then:
 
@@ -92,6 +98,11 @@ Then:
 - change the PIN
 - add or scan the applications you want to expose
 - open the launcher URL on your phone
+
+On Windows scan results:
+
+- executable icons are extracted automatically
+- apps already added to the launcher are hidden from the suggestion list
 
 ## Key routes
 

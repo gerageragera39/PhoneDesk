@@ -197,6 +197,14 @@ export const Admin = () => {
     [orderedApps],
   );
 
+  const availableScanResults = useMemo(() => {
+    const existingKeys = new Set(
+      orderedApps.map((app) => `${app.platform}:${app.executablePath.trim().toLowerCase()}`),
+    );
+
+    return scanResults.filter((app) => !existingKeys.has(`${app.platform}:${app.executablePath.trim().toLowerCase()}`));
+  }, [orderedApps, scanResults]);
+
   const handleLogout = () => {
     clearSession();
     navigate("/pin", { replace: true });
@@ -342,6 +350,8 @@ export const Admin = () => {
       category: app.category,
       platform: app.platform,
     });
+
+    setScanResults((current) => current.filter((entry) => entry.id !== app.id));
   };
 
   const submitPinChange = async (event: FormEvent<HTMLFormElement>) => {
@@ -413,7 +423,7 @@ export const Admin = () => {
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
             <p className="text-xs uppercase tracking-[0.24em] text-white/45">Scan results</p>
-            <p className="mt-2 text-3xl font-semibold text-white">{scanResults.length}</p>
+            <p className="mt-2 text-3xl font-semibold text-white">{availableScanResults.length}</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
             <p className="text-xs uppercase tracking-[0.24em] text-white/45">Security</p>
@@ -463,7 +473,7 @@ export const Admin = () => {
         </div>
       </section>
 
-      {scanResults.length > 0 && (
+      {availableScanResults.length > 0 && (
         <section className="glass-panel mb-6 rounded-[30px] p-5">
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -473,12 +483,12 @@ export const Admin = () => {
               </p>
             </div>
             <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/55">
-              Showing top {Math.min(scanResults.length, 24)} results
+              Showing top {Math.min(availableScanResults.length, 24)} results
             </span>
           </div>
 
           <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {scanResults.slice(0, 24).map((app) => (
+            {availableScanResults.slice(0, 24).map((app) => (
               <li key={app.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <p className="text-base font-semibold text-white">{app.name}</p>
                 <p className="mt-2 line-clamp-3 text-xs leading-5 text-white/55">{app.executablePath}</p>

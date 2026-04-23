@@ -261,10 +261,15 @@ export class LinuxLauncher implements ILauncherStrategy {
 
   private async focusWindow(windowId: string): Promise<boolean> {
     try {
-      await this.execFileAsync("wmctrl", ["-i", "-a", windowId]);
+      await this.execFileAsync("wmctrl", ["-i", "-R", windowId]);
       return true;
     } catch {
-      return false;
+      try {
+        await this.execFileAsync("wmctrl", ["-i", "-a", windowId]);
+        return true;
+      } catch {
+        return false;
+      }
     }
   }
 
